@@ -1,0 +1,61 @@
+# ==========================
+# 🧠 Python / Streamlit Project Ignore
+# ==========================
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Python cache / build / temp files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.bak
+*.swp
+*.egg-info/
+build/
+dist/
+
+# Streamlit / cache
+.streamlit/
+.cache/
+*.tfevents*
+
+# Model files
+*.pt
+*.pth
+*.onnx
+
+# Dataset folders (huge, don't upload)
+data/
+datasets/
+images/
+videos/
+outputs/
+
+# IDE / editor settings
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Cloudflare / local config
+.cloudflared/
+config.yml
+
+# Misc
+*.zip
+*.tar
+*.gz
+*.7z
