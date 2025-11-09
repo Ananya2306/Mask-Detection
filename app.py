@@ -1,11 +1,17 @@
-# app.py — Face Mask Classification (Streamlit Cloud ready)
+# app.py — Face Mask Classification (cloud-safe: image mode; webcam auto-disabled if PyAV/webrtc missing)
 import io, time, numpy as np, cv2, torch, torchvision.transforms as T
 from torchvision import models
 from PIL import Image
 import streamlit as st
 import mediapipe as mp
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
-import av
+
+# Try optional webcam deps. If missing (e.g., on Streamlit Cloud), we hide the webcam tab gracefully.
+try:
+    from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+    import av  # PyAV
+    HAS_WEBRTC = True
+except Exception:
+    HAS_WEBRTC = False
 
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="Mask Detection", layout="wide")
@@ -62,7 +68,7 @@ def expand_box(x, y, w, h, scale, W, H):
     return x1, y1, x2, y2
 
 def annotate_bgr(img_bgr, model, device, conf_thresh=0.6, per_face=True):
-    """Return annotated BGR image and list of detections."""
+    """Return annotated image and list of detections."""
     H, W = img_bgr.shape[:2]
     out = img_bgr.copy()
     results = []
@@ -108,7 +114,6 @@ def bgr_to_png_bytes(img_bgr):
 st.sidebar.header("Settings")
 weights_path = st.sidebar.text_input("Model weights (.pt)", value="mask_cls_best.pt")
 conf_thresh = st.sidebar.slider("Confidence threshold", 0.10, 0.99, 0.60, 0.01)
-mode = st.sidebar.radio("Mode", ["Image", "Webcam"], horizontal=True)
 per_face = st.sidebar.toggle("Per-face boxes (MediaPipe)", value=True, help="Detect faces, crop, then classify. Turn off to classify the full frame.")
 if st.sidebar.button("Load / Reload Model"):
     st.session_state.pop("bundle", None)
@@ -125,10 +130,13 @@ model, device = st.session_state["bundle"]
 
 # ---------------- HEADER ----------------
 st.markdown(f"<div class='big-title'>{TITLE}</div>", unsafe_allow_html=True)
-st.caption("Per-face boxes • Confidence bars • FPS • Works with browser camera on Streamlit Cloud")
+st.caption("Image upload • Per-face boxes • Confidence bars • Cloud-safe (Webcam disabled if PyAV/WebRTC unavailable)")
 
 # ---------------- TABS ----------------
-tab1, tab2 = st.tabs(["📷 Image", "🎥 Webcam"])
+if HAS_WEBRTC:
+    tab1, tab2 = st.tabs(["📷 Image", "🎥 Webcam"])
+else:
+    tab1 = st.tabs(["📷 Image"])[0]
 
 # ==== IMAGE TAB ====
 with tab1:
@@ -153,31 +161,31 @@ with tab1:
                     st.write(f"- **{d['label']}** — {d['conf']:.2f}")
                     st.progress(int(d["conf"]*100))
 
-# ==== WEBCAM TAB (browser camera via WebRTC) ====
-class FaceMaskTransformer(VideoTransformerBase):
-    def __init__(self):
-        # reuse already loaded globals
-        self.model, self.device = model, device
-        # values will be read live each frame from st.session_state for responsiveness
-    def recv(self, frame):
-        img_bgr = frame.to_ndarray(format="bgr24")
-        # read latest sidebar controls live
-        conf = float(st.session_state.get("conf_thresh_state", conf_thresh))
-        pface = bool(st.session_state.get("per_face_state", per_face))
-        out, _ = annotate_bgr(img_bgr, self.model, self.device,
-                              conf_thresh=conf, per_face=pface)
-        return av.VideoFrame.from_ndarray(out, format="bgr24")
+# ==== WEBCAM TAB (only if deps available) ====
+if HAS_WEBRTC:
+    class FaceMaskTransformer(VideoTransformerBase):
+        def __init__(self):
+            self.model, self.device = model, device
+        def recv(self, frame):
+            img_bgr = frame.to_ndarray(format="bgr24")
+            # read latest sidebar values each frame
+            conf = float(st.session_state.get("conf_thresh_state", conf_thresh))
+            pface = bool(st.session_state.get("per_face_state", per_face))
+            out, _ = annotate_bgr(img_bgr, self.model, self.device,
+                                  conf_thresh=conf, per_face=pface)
+            return av.VideoFrame.from_ndarray(out, format="bgr24")
 
-with tab2:
-    st.subheader("Webcam (browser)")
-    st.info("Runs in your browser using WebRTC. Works on Streamlit Community Cloud / Hugging Face Spaces.")
-    # sync sidebar values into session_state so the transformer can read them
-    st.session_state["conf_thresh_state"] = conf_thresh
-    st.session_state["per_face_state"] = per_face
+    with tab2:
+        st.subheader("Webcam (browser)")
+        st.info("Uses your browser camera via WebRTC. If this tab doesn’t render, the server is missing PyAV/FFmpeg.")
+        st.session_state["conf_thresh_state"] = conf_thresh
+        st.session_state["per_face_state"] = per_face
 
-    webrtc_streamer(
-        key="mask-webrtc",
-        video_transformer_factory=FaceMaskTransformer,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
+        webrtc_streamer(
+            key="mask-webrtc",
+            video_transformer_factory=FaceMaskTransformer,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+        )
+else:
+    st.info("Webcam is disabled on this deployment (PyAV/FFmpeg not available). Image upload works perfectly.")
